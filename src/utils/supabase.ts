@@ -30,11 +30,14 @@ export async function fetchProductsFromCloud(): Promise<Product[] | null> {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/products?select=*&order=created_at.desc`, {
       headers: getHeaders()
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error("Failed to fetch products from Supabase:", res.status, await res.text());
+      return null;
+    }
     const data = await res.json();
     return Array.isArray(data) ? data : null;
   } catch (err) {
-    console.warn("Error fetching products from Supabase:", err);
+    console.error("Network error fetching products from Supabase:", err);
     return null;
   }
 }
@@ -42,16 +45,26 @@ export async function fetchProductsFromCloud(): Promise<Product[] | null> {
 export async function upsertProductToCloud(product: Product): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/products`, {
+    const payload = {
+      ...product,
+      created_at: new Date().toISOString()
+    };
+
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/products?on_conflict=id`, {
       method: "POST",
       headers: getHeaders({
         Prefer: "resolution=merge-duplicates,return=representation"
       }),
-      body: JSON.stringify(product)
+      body: JSON.stringify(payload)
     });
-    return res.ok;
+
+    if (!res.ok) {
+      console.error("Failed to upsert product in Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error saving product to Supabase:", err);
+    console.error("Network error upserting product to Supabase:", err);
     return false;
   }
 }
@@ -63,9 +76,13 @@ export async function deleteProductFromCloud(id: string): Promise<boolean> {
       method: "DELETE",
       headers: getHeaders()
     });
-    return res.ok;
+    if (!res.ok) {
+      console.error("Failed to delete product from Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error deleting product from Supabase:", err);
+    console.error("Network error deleting product from Supabase:", err);
     return false;
   }
 }
@@ -79,14 +96,17 @@ export async function fetchSiteContentFromCloud(): Promise<SiteContent | null> {
       `${SUPABASE_URL}/rest/v1/site_settings?key=eq.main_content&select=content`,
       { headers: getHeaders() }
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error("Failed to fetch site content from Supabase:", res.status, await res.text());
+      return null;
+    }
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0 && data[0].content) {
       return data[0].content as SiteContent;
     }
     return null;
   } catch (err) {
-    console.warn("Error fetching site settings from Supabase:", err);
+    console.error("Network error fetching site settings from Supabase:", err);
     return null;
   }
 }
@@ -94,7 +114,7 @@ export async function fetchSiteContentFromCloud(): Promise<SiteContent | null> {
 export async function saveSiteContentToCloud(content: SiteContent): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/site_settings`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/site_settings?on_conflict=key`, {
       method: "POST",
       headers: getHeaders({
         Prefer: "resolution=merge-duplicates,return=representation"
@@ -105,9 +125,13 @@ export async function saveSiteContentToCloud(content: SiteContent): Promise<bool
         updated_at: new Date().toISOString()
       })
     });
-    return res.ok;
+    if (!res.ok) {
+      console.error("Failed to save site content to Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error saving site content to Supabase:", err);
+    console.error("Network error saving site content to Supabase:", err);
     return false;
   }
 }
@@ -120,11 +144,14 @@ export async function fetchOrdersFromCloud(): Promise<Order[] | null> {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc`, {
       headers: getHeaders()
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error("Failed to fetch orders from Supabase:", res.status, await res.text());
+      return null;
+    }
     const data = await res.json();
     return Array.isArray(data) ? data : null;
   } catch (err) {
-    console.warn("Error fetching orders from Supabase:", err);
+    console.error("Network error fetching orders from Supabase:", err);
     return null;
   }
 }
@@ -132,16 +159,24 @@ export async function fetchOrdersFromCloud(): Promise<Order[] | null> {
 export async function saveOrderToCloud(order: Order): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/orders`, {
+    const payload = {
+      ...order,
+      created_at: new Date().toISOString()
+    };
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/orders?on_conflict=id`, {
       method: "POST",
       headers: getHeaders({
         Prefer: "resolution=merge-duplicates,return=representation"
       }),
-      body: JSON.stringify(order)
+      body: JSON.stringify(payload)
     });
-    return res.ok;
+    if (!res.ok) {
+      console.error("Failed to save order to Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error saving order to Supabase:", err);
+    console.error("Network error saving order to Supabase:", err);
     return false;
   }
 }
@@ -159,9 +194,13 @@ export async function updateOrderStatusInCloud(
       }),
       body: JSON.stringify(updates)
     });
-    return res.ok;
+    if (!res.ok) {
+      console.error("Failed to update order in Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error updating order in Supabase:", err);
+    console.error("Network error updating order in Supabase:", err);
     return false;
   }
 }
@@ -173,9 +212,13 @@ export async function deleteOrderFromCloud(orderId: string): Promise<boolean> {
       method: "DELETE",
       headers: getHeaders()
     });
-    return res.ok;
+    if (!res.ok) {
+      console.error("Failed to delete order from Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
   } catch (err) {
-    console.warn("Error deleting order in Supabase:", err);
+    console.error("Network error deleting order from Supabase:", err);
     return false;
   }
 }

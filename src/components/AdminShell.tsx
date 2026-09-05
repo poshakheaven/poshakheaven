@@ -1,15 +1,19 @@
 import {
   ArrowUpRight,
   BarChart3,
+  Cloud,
+  CloudOff,
   LogOut,
   Package,
   ReceiptText,
+  RefreshCw,
   Settings,
   Sparkles
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAdminAuth } from "../context/AdminAuthContext";
+import { useStore } from "../context/StoreContext";
 
 type AdminShellProps = {
   title: string;
@@ -30,6 +34,14 @@ export function AdminShell({
   children
 }: AdminShellProps) {
   const { logout, username } = useAdminAuth();
+  const { isCloudConnected, isSyncingOrders, syncAll, lastSyncedAt } = useStore();
+  const [manualSyncing, setManualSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    setManualSyncing(true);
+    await syncAll();
+    setTimeout(() => setManualSyncing(false), 600);
+  };
 
   return (
     <div className="min-h-screen bg-[#120B09] text-ink antialiased">
@@ -53,27 +65,61 @@ export function AdminShell({
           </div>
 
           <div className="flex items-center gap-3 text-xs">
+            {/* Cloud Sync Status */}
+            <div className="flex items-center gap-2">
+              {isCloudConnected ? (
+                <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-medium text-emerald-400">
+                  <Cloud className="h-3.5 w-3.5 animate-pulse" />
+                  <span className="hidden md:inline">Supabase Cloud Sync</span>
+                  <span className="md:hidden">Cloud</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-950/40 px-2.5 py-1 text-[11px] font-medium text-amber-300">
+                  <CloudOff className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">Local Storage Mode</span>
+                  <span className="md:hidden">Local</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={manualSyncing || isSyncingOrders}
+                title="Sync database now"
+                className="inline-flex h-7 items-center gap-1 rounded-sm border border-white/10 bg-surface px-2 text-[11px] text-muted hover:text-ink transition hover:border-accent/40 disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-3 w-3 ${
+                    manualSyncing || isSyncingOrders ? "animate-spin text-accent" : ""
+                  }`}
+                />
+                <span className="hidden sm:inline">Sync</span>
+              </button>
+            </div>
+
             {username && (
-              <span className="hidden sm:inline text-muted">
+              <span className="hidden lg:inline text-muted">
                 Signed in as <strong className="text-ink">{username}</strong>
               </span>
             )}
+
             <Link
               to="/"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden sm:inline-flex items-center gap-1 text-xs text-muted hover:text-accent transition-colors"
             >
-              <span>View Live Store</span>
+              <span>View Store</span>
               <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
+
             <button
               type="button"
               onClick={logout}
               className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-white/10 bg-surface px-3 text-xs font-semibold text-muted transition hover:border-error/40 hover:text-error"
             >
               <LogOut className="h-3.5 w-3.5" />
-              <span>Logout</span>
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
