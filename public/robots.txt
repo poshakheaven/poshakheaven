@@ -1,4 +1,9 @@
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /secure-admin-login
+Disallow: /checkout
+Disallow: /cart
+Disallow: /success
 
-Sitemap: /sitemap.xml
+Sitemap: https://poshakheaven.netlify.app/sitemap.xml
