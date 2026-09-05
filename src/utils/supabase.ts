@@ -1,4 +1,4 @@
-import type { Order, OrderStatus, Product, SiteContent } from "../types";
+import type { Category, Order, OrderStatus, Product, SiteContent } from "../types";
 
 const SUPABASE_URL = (
   import.meta.env.VITE_SUPABASE_URL ||
@@ -83,6 +83,52 @@ export async function deleteProductFromCloud(id: string): Promise<boolean> {
     return true;
   } catch (err) {
     console.error("Network error deleting product from Supabase:", err);
+    return false;
+  }
+}
+
+// ---------------- CATEGORIES ----------------
+
+export async function fetchCategoriesFromCloud(): Promise<Category[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/site_settings?key=eq.categories_list&select=content`,
+      { headers: getHeaders() }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0 && Array.isArray(data[0].content)) {
+      return data[0].content as Category[];
+    }
+    return null;
+  } catch (err) {
+    console.error("Network error fetching categories from Supabase:", err);
+    return null;
+  }
+}
+
+export async function saveCategoriesToCloud(categories: Category[]): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/site_settings?on_conflict=key`, {
+      method: "POST",
+      headers: getHeaders({
+        Prefer: "resolution=merge-duplicates,return=representation"
+      }),
+      body: JSON.stringify({
+        key: "categories_list",
+        content: categories,
+        updated_at: new Date().toISOString()
+      })
+    });
+    if (!res.ok) {
+      console.error("Failed to save categories to Supabase:", res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("Network error saving categories to Supabase:", err);
     return false;
   }
 }

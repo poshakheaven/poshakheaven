@@ -21,13 +21,12 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useStore } from "../context/StoreContext";
 import { useWishlist } from "../context/WishlistContext";
-import { categories } from "../data/catalog";
 import { formatCurrency } from "../utils/format";
 
 export function Header() {
   const { count, subtotal } = useCart();
   const { wishlistIds } = useWishlist();
-  const { siteContent } = useStore();
+  const { siteContent, categories } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
 

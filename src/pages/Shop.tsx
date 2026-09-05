@@ -14,26 +14,28 @@ import { EmptyState } from "../components/EmptyState";
 import { Meta } from "../components/Meta";
 import { ProductCard } from "../components/ProductCard";
 import { useStore } from "../context/StoreContext";
-import { categories } from "../data/catalog";
 import { formatCurrency } from "../utils/format";
 
 type SortMode = "featured" | "low-high" | "high-low" | "newest";
 type PriceMode = "all" | "under-1500" | "1500-2500" | "2500-plus";
 
-const categoryNames = ["All", ...categories.map((category) => category.name)];
 
 export function Shop() {
   const { categorySlug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { products, siteContent } = useStore();
+  const { products, siteContent, categories } = useStore();
+  const categoryNames = useMemo(() => ["All", ...categories.map((c) => c.name)], [categories]);
 
-  const routedCategory =
-    categories.find((category) => category.slug === categorySlug)?.name ?? "All";
+  const routedCategory = useMemo(() => categories.find((c) => c.slug === categorySlug)?.name ?? "All", [categories, categorySlug]);
   const urlQuery = searchParams.get("q") ?? "";
   const tag = searchParams.get("tag");
 
   const [query, setQuery] = useState(urlQuery);
   const [category, setCategory] = useState(routedCategory);
+
+  useEffect(() => {
+    setCategory(routedCategory);
+  }, [routedCategory]);
   const [priceMode, setPriceMode] = useState<PriceMode>("all");
   const [size, setSize] = useState("All");
   const [color, setColor] = useState("All");

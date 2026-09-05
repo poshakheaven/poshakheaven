@@ -15,10 +15,9 @@ import { Meta } from "../components/Meta";
 import { ProductCard } from "../components/ProductCard";
 import { SectionTitle } from "../components/SectionTitle";
 import { useStore } from "../context/StoreContext";
-import { categories } from "../data/catalog";
 
 export function Home() {
-  const { products, siteContent } = useStore();
+  const { products, siteContent, categories } = useStore();
   const [email, setEmail] = useState("");
   const [subscribed, setSubscribed] = useState(false);
 

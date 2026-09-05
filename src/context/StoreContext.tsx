@@ -7,18 +7,20 @@ import {
   useMemo,
   useState
 } from "react";
-import { seedProducts } from "../data/catalog";
+import { categories as defaultCategories, seedProducts } from "../data/catalog";
 import { defaultSiteContent } from "../data/defaultContent";
-import type { Order, OrderStatus, Product, ProductDraft, SiteContent } from "../types";
+import type { Category, Order, OrderStatus, Product, ProductDraft, SiteContent } from "../types";
 import { slugify } from "../utils/format";
 import { readStorage, writeStorage } from "../utils/storage";
 import {
   deleteOrderFromCloud,
   deleteProductFromCloud,
+  fetchCategoriesFromCloud,
   fetchOrdersFromCloud,
   fetchProductsFromCloud,
   fetchSiteContentFromCloud,
   isSupabaseConfigured,
+  saveCategoriesToCloud,
   saveOrderToCloud,
   saveSiteContentToCloud,
   updateOrderStatusInCloud,
@@ -27,6 +29,7 @@ import {
 
 type StoreContextValue = {
   products: Product[];
+  categories: Category[];
   orders: Order[];
   siteContent: SiteContent;
   isSyncingOrders: boolean;
@@ -37,6 +40,10 @@ type StoreContextValue = {
   addProduct: (product: ProductDraft) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (id: string) => void;
+  addCategory: (category: Category) => void;
+  updateCategory: (oldSlug: string, category: Category) => void;
+  deleteCategory: (slug: string) => void;
+  resetCategories: () => void;
   saveOrder: (order: Order) => void;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   deleteOrder: (orderId: string) => void;
@@ -48,6 +55,7 @@ type StoreContextValue = {
 };
 
 const PRODUCTS_KEY = "ph_products";
+const CATEGORIES_KEY = "ph_categories";
 const ORDERS_KEY = "ph_orders";
 const CONTENT_KEY = "ph_site_content";
 
@@ -73,6 +81,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>(() =>
     readStorage(PRODUCTS_KEY, seedProducts)
   );
+  const [categories, setCategories] = useState<Category[]>(() =>
+    readStorage(CATEGORIES_KEY, defaultCategories)
+  );
   const [orders, setOrders] = useState<Order[]>(() =>
     readStorage<Order[]>(ORDERS_KEY, [])
   );
@@ -91,6 +102,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => writeStorage(PRODUCTS_KEY, products), [products]);
+  useEffect(() => writeStorage(CATEGORIES_KEY, categories), [categories]);
   useEffect(() => writeStorage(ORDERS_KEY, orders), [orders]);
   useEffect(() => writeStorage(CONTENT_KEY, siteContent), [siteContent]);
 
@@ -102,13 +114,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (cloudProducts && cloudProducts.length > 0) {
         setProducts(cloudProducts);
       } else if (cloudProducts && cloudProducts.length === 0) {
-        // First-time seed: upload seedProducts to Supabase
         for (const sp of seedProducts) {
           await upsertProductToCloud(sp);
+        }
+        const seeded = await fetchProductsFromCloud();
+        if (seeded && seeded.length > 0) {
+          setProducts(seeded);
         }
       }
     } catch (err) {
       console.warn("Supabase products sync failed:", err);
+    }
+  }, []);
+
+  // Sync Categories from Supabase
+  const syncCategories = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const cloudCategories = await fetchCategoriesFromCloud();
+      if (cloudCategories && cloudCategories.length > 0) {
+        setCategories(cloudCategories);
+      }
+    } catch (err) {
+      console.warn("Supabase categories sync failed:", err);
     }
   }, []);
 
@@ -131,7 +159,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Sync orders with cloud (Supabase + fallback API)
+  // Sync orders with cloud
   const syncOrders = useCallback(async () => {
     setIsSyncingOrders(true);
     try {
@@ -145,7 +173,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Fallback: serverless endpoint
       const res = await fetch("/api/orders");
       if (res.ok) {
         const data = await res.json();
@@ -175,16 +202,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const syncAll = useCallback(async () => {
-    await Promise.allSettled([syncProducts(), syncSiteContent(), syncOrders()]);
-  }, [syncProducts, syncSiteContent, syncOrders]);
+    await Promise.allSettled([
+      syncProducts(),
+      syncCategories(),
+      syncSiteContent(),
+      syncOrders()
+    ]);
+  }, [syncProducts, syncCategories, syncSiteContent, syncOrders]);
 
   // Initial and periodic sync
   useEffect(() => {
     syncAll();
-    const interval = setInterval(syncAll, 15 * 1000); // Check every 15 seconds
+    const interval = setInterval(syncAll, 15 * 1000);
     return () => clearInterval(interval);
   }, [syncAll]);
 
+  // Product mutations
   const addProduct = useCallback((product: ProductDraft) => {
     const normalized = normalizeProduct(product);
     setProducts((current) => [normalized, ...current]);
@@ -204,16 +237,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deleteProductFromCloud(id).catch(() => {});
   }, []);
 
+  // Category mutations
+  const addCategory = useCallback((category: Category) => {
+    setCategories((current) => {
+      const exists = current.some((c) => c.slug === category.slug);
+      const updated = exists
+        ? current.map((c) => (c.slug === category.slug ? category : c))
+        : [...current, category];
+      saveCategoriesToCloud(updated).catch(() => {});
+      return updated;
+    });
+  }, []);
+
+  const updateCategory = useCallback((oldSlug: string, category: Category) => {
+    setCategories((current) => {
+      const updated = current.map((c) => (c.slug === oldSlug ? category : c));
+      saveCategoriesToCloud(updated).catch(() => {});
+      return updated;
+    });
+  }, []);
+
+  const deleteCategory = useCallback((slug: string) => {
+    setCategories((current) => {
+      const updated = current.filter((c) => c.slug !== slug);
+      saveCategoriesToCloud(updated).catch(() => {});
+      return updated;
+    });
+  }, []);
+
+  const resetCategories = useCallback(() => {
+    setCategories(defaultCategories);
+    saveCategoriesToCloud(defaultCategories).catch(() => {});
+  }, []);
+
+  // Order mutations
   const saveOrder = useCallback((order: Order) => {
     setOrders((current) => {
       const exists = current.some((o) => o.id === order.id);
       return exists ? current : [order, ...current];
     });
 
-    // Save to Supabase
     saveOrderToCloud(order).catch(() => {});
 
-    // Also dispatch to Netlify function for Telegram notification
     fetch("/api/send-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -292,6 +357,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       products,
+      categories,
       orders,
       siteContent,
       isSyncingOrders,
@@ -302,6 +368,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addProduct,
       updateProduct,
       deleteProduct,
+      addCategory,
+      updateCategory,
+      deleteCategory,
+      resetCategories,
       saveOrder,
       updateOrderStatus,
       deleteOrder,
@@ -314,6 +384,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       addProduct,
       deleteProduct,
+      addCategory,
+      updateCategory,
+      deleteCategory,
+      resetCategories,
+      categories,
       orders,
       products,
       isSyncingOrders,
