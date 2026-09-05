@@ -1,3 +1,4 @@
+import { recordCloudOrder } from "./orders.js";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
@@ -38,6 +39,7 @@ export const handler = async (event) => {
     return json(400, { message: "Order payload must be valid JSON." });
   }
 
+  recordCloudOrder(order);
   const validation = validateOrder(order);
   if (validation) {
     return json(400, { message: validation });

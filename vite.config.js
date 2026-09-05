@@ -48,6 +48,8 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { handler as sendOrderHandler } from "./netlify/functions/send-order.js";
+import { handler as ordersHandler } from "./netlify/functions/orders.js";
+import { handler as authOtpHandler } from "./netlify/functions/auth-otp.js";
 export default defineConfig(function (_a) {
     var mode = _a.mode;
     var env = loadEnv(mode, process.cwd(), "");
@@ -65,6 +67,72 @@ export default defineConfig(function (_a) {
                 configureServer: function (server) {
                     var _this = this;
                     server.middlewares.use(function (req, res, next) {
+                        var _a, _b;
+                        if ((_a = req.url) === null || _a === void 0 ? void 0 : _a.startsWith("/api/orders")) {
+                            if (req.method === "OPTIONS") {
+                                res.writeHead(204, {
+                                    "Access-Control-Allow-Origin": "*",
+                                    "Access-Control-Allow-Headers": "Content-Type",
+                                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                                });
+                                res.end();
+                                return;
+                            }
+                            var body_1 = "";
+                            req.on("data", function (chunk) { body_1 += chunk; });
+                            req.on("end", function () { return __awaiter(_this, void 0, void 0, function () {
+                                var urlObj, result;
+                                return __generator(this, function (_a) {
+                                    switch (_a.label) {
+                                        case 0:
+                                            urlObj = new URL(req.url, "http://localhost");
+                                            return [4 /*yield*/, ordersHandler({
+                                                    httpMethod: req.method,
+                                                    body: body_1,
+                                                    queryStringParameters: Object.fromEntries(urlObj.searchParams),
+                                                    headers: req.headers,
+                                                })];
+                                        case 1:
+                                            result = _a.sent();
+                                            res.writeHead(result.statusCode, __assign({ "Content-Type": "application/json" }, (result.headers || {})));
+                                            res.end(result.body);
+                                            return [2 /*return*/];
+                                    }
+                                });
+                            }); });
+                            return;
+                        }
+                        if ((_b = req.url) === null || _b === void 0 ? void 0 : _b.startsWith("/api/auth-otp")) {
+                            if (req.method === "OPTIONS") {
+                                res.writeHead(204, {
+                                    "Access-Control-Allow-Origin": "*",
+                                    "Access-Control-Allow-Headers": "Content-Type",
+                                    "Access-Control-Allow-Methods": "POST, OPTIONS",
+                                });
+                                res.end();
+                                return;
+                            }
+                            var body_2 = "";
+                            req.on("data", function (chunk) { body_2 += chunk; });
+                            req.on("end", function () { return __awaiter(_this, void 0, void 0, function () {
+                                var result;
+                                return __generator(this, function (_a) {
+                                    switch (_a.label) {
+                                        case 0: return [4 /*yield*/, authOtpHandler({
+                                                httpMethod: req.method,
+                                                body: body_2,
+                                                headers: req.headers,
+                                            })];
+                                        case 1:
+                                            result = _a.sent();
+                                            res.writeHead(result.statusCode, __assign({ "Content-Type": "application/json" }, (result.headers || {})));
+                                            res.end(result.body);
+                                            return [2 /*return*/];
+                                    }
+                                });
+                            }); });
+                            return;
+                        }
                         if (req.url === "/api/send-order") {
                             if (req.method === "OPTIONS") {
                                 res.writeHead(204, {
@@ -76,9 +144,9 @@ export default defineConfig(function (_a) {
                                 return;
                             }
                             if (req.method === "POST") {
-                                var body_1 = "";
+                                var body_3 = "";
                                 req.on("data", function (chunk) {
-                                    body_1 += chunk;
+                                    body_3 += chunk;
                                 });
                                 req.on("end", function () { return __awaiter(_this, void 0, void 0, function () {
                                     var result, err_1;
@@ -88,7 +156,7 @@ export default defineConfig(function (_a) {
                                                 _a.trys.push([0, 2, , 3]);
                                                 return [4 /*yield*/, sendOrderHandler({
                                                         httpMethod: "POST",
-                                                        body: body_1,
+                                                        body: body_3,
                                                         headers: req.headers,
                                                     })];
                                             case 1:

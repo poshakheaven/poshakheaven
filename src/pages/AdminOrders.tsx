@@ -12,6 +12,7 @@ import {
   Package,
   Phone,
   ReceiptText,
+  RotateCw,
   Search,
   Send,
   Trash2,
@@ -52,6 +53,8 @@ function getCleanWhatsAppUrl(phone?: string, text?: string) {
 export function AdminOrders() {
   const {
     orders = [],
+    isSyncingOrders,
+    syncOrders,
     updateOrderStatus,
     deleteOrder,
     archiveOrder,
@@ -118,8 +121,20 @@ export function AdminOrders() {
           </div>
         )}
 
-        {/* Status Filter Tabs */}
+        {/* Status Filter Tabs & Sync */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => syncOrders()}
+              disabled={isSyncingOrders}
+              className="inline-flex items-center gap-1.5 rounded-sm border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-semibold text-accent hover:bg-accent hover:text-background transition-all disabled:opacity-50"
+              title="Sync orders across all devices"
+            >
+              <RotateCw className={`h-3.5 w-3.5 ${isSyncingOrders ? "animate-spin" : ""}`} />
+              <span>{isSyncingOrders ? "Syncing..." : "Sync All Orders"}</span>
+            </button>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {["All", ...statusOptions, "Archived"].map((tab) => {
               const count =

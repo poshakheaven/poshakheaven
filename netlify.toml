@@ -12,6 +12,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/orders"
+  to = "/.netlify/functions/orders"
+  status = 200
+
+[[redirects]]
+  from = "/api/auth-otp"
+  to = "/.netlify/functions/auth-otp"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

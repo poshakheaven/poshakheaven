@@ -17,6 +17,9 @@ type StoreContextValue = {
   products: Product[];
   orders: Order[];
   siteContent: SiteContent;
+  isSyncingOrders: boolean;
+  lastSyncedAt: Date | null;
+  syncOrders: () => Promise<void>;
   addProduct: (product: ProductDraft) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (id: string) => void;
@@ -59,6 +62,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>(() =>
     readStorage<Order[]>(ORDERS_KEY, [])
   );
+  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
   const [siteContent, setSiteContent] = useState<SiteContent>(() => {
     const saved = readStorage<Partial<SiteContent>>(CONTENT_KEY, defaultSiteContent);
     return {
@@ -73,6 +79,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => writeStorage(PRODUCTS_KEY, products), [products]);
   useEffect(() => writeStorage(ORDERS_KEY, orders), [orders]);
   useEffect(() => writeStorage(CONTENT_KEY, siteContent), [siteContent]);
+
+  // Sync orders with serverless cloud API across all devices
+  const syncOrders = useCallback(async () => {
+    setIsSyncingOrders(true);
+    try {
+      const res = await fetch("/api/orders");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.orders)) {
+          setOrders((current) => {
+            const map = new Map<string, Order>();
+            // Add server orders
+            data.orders.forEach((o: Order) => {
+              if (o && o.id) map.set(o.id, o);
+            });
+            // Merge with local orders
+            current.forEach((o) => {
+              if (o && o.id && !map.has(o.id)) {
+                map.set(o.id, o);
+              }
+            });
+            return Array.from(map.values()).sort(
+              (a, b) => new Date(b.orderTime).getTime() - new Date(a.orderTime).getTime()
+            );
+          });
+          setLastSyncedAt(new Date());
+        }
+      }
+    } catch (err) {
+      console.warn("Cloud orders sync unavailable (running in local storage mode):", err);
+    } finally {
+      setIsSyncingOrders(false);
+    }
+  }, []);
+
+  // Initial and periodic sync
+  useEffect(() => {
+    syncOrders();
+    const interval = setInterval(syncOrders, 20 * 1000); // Check every 20 seconds
+    return () => clearInterval(interval);
+  }, [syncOrders]);
 
   const addProduct = useCallback((product: ProductDraft) => {
     setProducts((current) => [normalizeProduct(product), ...current]);
@@ -91,7 +138,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveOrder = useCallback((order: Order) => {
-    setOrders((current) => [order, ...current]);
+    setOrders((current) => {
+      const exists = current.some((o) => o.id === order.id);
+      return exists ? current : [order, ...current];
+    });
+
+    // Also dispatch to serverless cloud store
+    fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(order)
+    }).catch(() => {});
   }, []);
 
   const updateOrderStatus = useCallback(
@@ -101,12 +158,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           order.id === orderId ? { ...order, status } : order
         )
       );
+
+      fetch("/api/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, status })
+      }).catch(() => {});
     },
     []
   );
 
   const deleteOrder = useCallback((orderId: string) => {
     setOrders((current) => current.filter((order) => order.id !== orderId));
+
+    fetch("/api/orders", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId })
+    }).catch(() => {});
   }, []);
 
   const archiveOrder = useCallback((orderId: string, archived = true) => {
@@ -115,6 +184,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         order.id === orderId ? { ...order, archived } : order
       )
     );
+
+    fetch("/api/orders", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId, archived })
+    }).catch(() => {});
   }, []);
 
   const deleteCancelledOrders = useCallback(() => {
@@ -136,6 +211,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       products,
       orders,
       siteContent,
+      isSyncingOrders,
+      lastSyncedAt,
+      syncOrders,
       addProduct,
       updateProduct,
       deleteProduct,
@@ -153,6 +231,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteProduct,
       orders,
       products,
+      isSyncingOrders,
+      lastSyncedAt,
+      syncOrders,
       resetProducts,
       resetSiteContent,
       saveOrder,

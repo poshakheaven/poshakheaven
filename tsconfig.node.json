@@ -6,7 +6,9 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "allowJs": true,
-    "checkJs": false
+    "checkJs": false,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.cache/tsbuild"
   },
   "include": [
     "vite.config.ts"
