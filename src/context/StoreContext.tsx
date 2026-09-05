@@ -12,6 +12,18 @@ import { defaultSiteContent } from "../data/defaultContent";
 import type { Order, OrderStatus, Product, ProductDraft, SiteContent } from "../types";
 import { slugify } from "../utils/format";
 import { readStorage, writeStorage } from "../utils/storage";
+import {
+  deleteOrderFromCloud,
+  deleteProductFromCloud,
+  fetchOrdersFromCloud,
+  fetchProductsFromCloud,
+  fetchSiteContentFromCloud,
+  isSupabaseConfigured,
+  saveOrderToCloud,
+  saveSiteContentToCloud,
+  updateOrderStatusInCloud,
+  upsertProductToCloud
+} from "../utils/supabase";
 
 type StoreContextValue = {
   products: Product[];
@@ -19,7 +31,9 @@ type StoreContextValue = {
   siteContent: SiteContent;
   isSyncingOrders: boolean;
   lastSyncedAt: Date | null;
+  isCloudConnected: boolean;
   syncOrders: () => Promise<void>;
+  syncAll: () => Promise<void>;
   addProduct: (product: ProductDraft) => void;
   updateProduct: (product: Product) => void;
   deleteProduct: (id: string) => void;
@@ -80,21 +94,67 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => writeStorage(ORDERS_KEY, orders), [orders]);
   useEffect(() => writeStorage(CONTENT_KEY, siteContent), [siteContent]);
 
-  // Sync orders with serverless cloud API across all devices
+  // Sync Products from Supabase
+  const syncProducts = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const cloudProducts = await fetchProductsFromCloud();
+      if (cloudProducts && cloudProducts.length > 0) {
+        setProducts(cloudProducts);
+      } else if (cloudProducts && cloudProducts.length === 0) {
+        // First-time seed: upload seedProducts to Supabase
+        for (const sp of seedProducts) {
+          await upsertProductToCloud(sp);
+        }
+      }
+    } catch (err) {
+      console.warn("Supabase products sync failed:", err);
+    }
+  }, []);
+
+  // Sync Site Content from Supabase
+  const syncSiteContent = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const cloudContent = await fetchSiteContentFromCloud();
+      if (cloudContent) {
+        setSiteContent({
+          hero: { ...defaultSiteContent.hero, ...(cloudContent.hero || {}) },
+          campaign: { ...defaultSiteContent.campaign, ...(cloudContent.campaign || {}) },
+          storeInfo: { ...defaultSiteContent.storeInfo, ...(cloudContent.storeInfo || {}) },
+          delivery: { ...defaultSiteContent.delivery, ...(cloudContent.delivery || {}) },
+          bulkDiscount: { ...defaultSiteContent.bulkDiscount, ...(cloudContent.bulkDiscount || {}) }
+        });
+      }
+    } catch (err) {
+      console.warn("Supabase content sync failed:", err);
+    }
+  }, []);
+
+  // Sync orders with cloud (Supabase + fallback API)
   const syncOrders = useCallback(async () => {
     setIsSyncingOrders(true);
     try {
+      if (isSupabaseConfigured) {
+        const cloudOrders = await fetchOrdersFromCloud();
+        if (Array.isArray(cloudOrders)) {
+          setOrders(cloudOrders);
+          setLastSyncedAt(new Date());
+          setIsSyncingOrders(false);
+          return;
+        }
+      }
+
+      // Fallback: serverless endpoint
       const res = await fetch("/api/orders");
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.orders)) {
           setOrders((current) => {
             const map = new Map<string, Order>();
-            // Add server orders
             data.orders.forEach((o: Order) => {
               if (o && o.id) map.set(o.id, o);
             });
-            // Merge with local orders
             current.forEach((o) => {
               if (o && o.id && !map.has(o.id)) {
                 map.set(o.id, o);
@@ -108,33 +168,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (err) {
-      console.warn("Cloud orders sync unavailable (running in local storage mode):", err);
+      console.warn("Orders sync unavailable (running in local mode):", err);
     } finally {
       setIsSyncingOrders(false);
     }
   }, []);
 
+  const syncAll = useCallback(async () => {
+    await Promise.allSettled([syncProducts(), syncSiteContent(), syncOrders()]);
+  }, [syncProducts, syncSiteContent, syncOrders]);
+
   // Initial and periodic sync
   useEffect(() => {
-    syncOrders();
-    const interval = setInterval(syncOrders, 20 * 1000); // Check every 20 seconds
+    syncAll();
+    const interval = setInterval(syncAll, 15 * 1000); // Check every 15 seconds
     return () => clearInterval(interval);
-  }, [syncOrders]);
+  }, [syncAll]);
 
   const addProduct = useCallback((product: ProductDraft) => {
-    setProducts((current) => [normalizeProduct(product), ...current]);
+    const normalized = normalizeProduct(product);
+    setProducts((current) => [normalized, ...current]);
+    upsertProductToCloud(normalized).catch(() => {});
   }, []);
 
   const updateProduct = useCallback((product: Product) => {
+    const normalized = normalizeProduct(product);
     setProducts((current) =>
-      current.map((item) =>
-        item.id === product.id ? normalizeProduct(product) : item
-      )
+      current.map((item) => (item.id === product.id ? normalized : item))
     );
+    upsertProductToCloud(normalized).catch(() => {});
   }, []);
 
   const deleteProduct = useCallback((id: string) => {
     setProducts((current) => current.filter((product) => product.id !== id));
+    deleteProductFromCloud(id).catch(() => {});
   }, []);
 
   const saveOrder = useCallback((order: Order) => {
@@ -143,8 +210,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return exists ? current : [order, ...current];
     });
 
-    // Also dispatch to serverless cloud store
-    fetch("/api/orders", {
+    // Save to Supabase
+    saveOrderToCloud(order).catch(() => {});
+
+    // Also dispatch to Netlify function for Telegram notification
+    fetch("/api/send-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(order)
@@ -159,6 +229,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         )
       );
 
+      updateOrderStatusInCloud(orderId, { status }).catch(() => {});
+
       fetch("/api/orders", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -170,6 +242,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const deleteOrder = useCallback((orderId: string) => {
     setOrders((current) => current.filter((order) => order.id !== orderId));
+
+    deleteOrderFromCloud(orderId).catch(() => {});
 
     fetch("/api/orders", {
       method: "DELETE",
@@ -185,6 +259,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       )
     );
 
+    updateOrderStatusInCloud(orderId, { archived }).catch(() => {});
+
     fetch("/api/orders", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -196,14 +272,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setOrders((current) => current.filter((order) => order.status !== "Cancelled"));
   }, []);
 
-  const resetProducts = useCallback(() => setProducts(seedProducts), []);
+  const resetProducts = useCallback(() => {
+    setProducts(seedProducts);
+    for (const sp of seedProducts) {
+      upsertProductToCloud(sp).catch(() => {});
+    }
+  }, []);
 
   const updateSiteContent = useCallback((content: SiteContent) => {
     setSiteContent(content);
+    saveSiteContentToCloud(content).catch(() => {});
   }, []);
 
   const resetSiteContent = useCallback(() => {
     setSiteContent(defaultSiteContent);
+    saveSiteContentToCloud(defaultSiteContent).catch(() => {});
   }, []);
 
   const value = useMemo(
@@ -213,7 +296,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       siteContent,
       isSyncingOrders,
       lastSyncedAt,
+      isCloudConnected: isSupabaseConfigured,
       syncOrders,
+      syncAll,
       addProduct,
       updateProduct,
       deleteProduct,
@@ -234,6 +319,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       isSyncingOrders,
       lastSyncedAt,
       syncOrders,
+      syncAll,
       resetProducts,
       resetSiteContent,
       saveOrder,
