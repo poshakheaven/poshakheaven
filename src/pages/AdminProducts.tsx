@@ -61,6 +61,7 @@ export function AdminProducts() {
     updateProduct,
     deleteProduct,
     resetProducts,
+    clearAllProducts,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -749,14 +750,33 @@ export function AdminProducts() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm("Reset catalogue to default seed products?")) resetProducts();
+                onClick={async () => {
+                  if (confirm("Clear all products from catalogue? You will start with an empty store.")) {
+                    await clearAllProducts();
+                    setFeedback("All products removed.");
+                    setTimeout(() => setFeedback(""), 3000);
+                  }
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-sm border border-rose-500/20 bg-rose-500/10 px-3 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 transition"
+                title="Clear all products"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>Clear All</span>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm("Reset catalogue to default seed products?")) {
+                    await resetProducts();
+                    setFeedback("Catalogue reset to default demo items.");
+                    setTimeout(() => setFeedback(""), 3000);
+                  }
                 }}
                 className="inline-flex h-9 items-center gap-1.5 rounded-sm border border-white/10 bg-[#120B09] px-3 text-xs font-semibold text-muted hover:text-ink transition hover:border-white/30"
-                title="Reset catalogue"
+                title="Reset demo catalogue"
               >
                 <RefreshCcw className="h-3.5 w-3.5" />
-                <span>Reset</span>
+                <span>Reset Demo</span>
               </button>
             </div>
           </div>

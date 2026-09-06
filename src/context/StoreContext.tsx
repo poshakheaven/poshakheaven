@@ -39,7 +39,8 @@ type StoreContextValue = {
   syncAll: () => Promise<void>;
   addProduct: (product: ProductDraft) => void;
   updateProduct: (product: Product) => void;
-  deleteProduct: (id: string) => void;
+  deleteProduct: (id: string) => Promise<void>;
+  clearAllProducts: () => Promise<void>;
   addCategory: (category: Category) => void;
   updateCategory: (oldSlug: string, category: Category) => void;
   deleteCategory: (slug: string) => void;
@@ -49,7 +50,7 @@ type StoreContextValue = {
   deleteOrder: (orderId: string) => void;
   archiveOrder: (orderId: string, archived?: boolean) => void;
   deleteCancelledOrders: () => void;
-  resetProducts: () => void;
+  resetProducts: () => Promise<void>;
   updateSiteContent: (content: SiteContent) => void;
   resetSiteContent: () => void;
 };
@@ -78,12 +79,16 @@ function normalizeProduct(product: ProductDraft): Product {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [products, setProducts] = useState<Product[]>(() =>
-    readStorage(PRODUCTS_KEY, seedProducts)
-  );
+  const [products, setProducts] = useState<Product[]>(() => {
+    const saved = readStorage<Product[] | null>(PRODUCTS_KEY, null);
+    if (saved !== null) return saved;
+    return isSupabaseConfigured ? [] : seedProducts;
+  });
+
   const [categories, setCategories] = useState<Category[]>(() =>
     readStorage(CATEGORIES_KEY, defaultCategories)
   );
+
   const [orders, setOrders] = useState<Order[]>(() =>
     readStorage<Order[]>(ORDERS_KEY, [])
   );
@@ -106,21 +111,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => writeStorage(ORDERS_KEY, orders), [orders]);
   useEffect(() => writeStorage(CONTENT_KEY, siteContent), [siteContent]);
 
-  // Sync Products from Supabase
+  // Sync Products from Supabase (Never auto re-seed deleted products!)
   const syncProducts = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
       const cloudProducts = await fetchProductsFromCloud();
-      if (cloudProducts && cloudProducts.length > 0) {
+      if (cloudProducts !== null) {
         setProducts(cloudProducts);
-      } else if (cloudProducts && cloudProducts.length === 0) {
-        for (const sp of seedProducts) {
-          await upsertProductToCloud(sp);
-        }
-        const seeded = await fetchProductsFromCloud();
-        if (seeded && seeded.length > 0) {
-          setProducts(seeded);
-        }
       }
     } catch (err) {
       console.warn("Supabase products sync failed:", err);
@@ -232,10 +229,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     upsertProductToCloud(normalized).catch(() => {});
   }, []);
 
-  const deleteProduct = useCallback((id: string) => {
+  const deleteProduct = useCallback(async (id: string) => {
     setProducts((current) => current.filter((product) => product.id !== id));
-    deleteProductFromCloud(id).catch(() => {});
+    await deleteProductFromCloud(id);
   }, []);
+
+  const clearAllProducts = useCallback(async () => {
+    const ids = products.map((p) => p.id);
+    setProducts([]);
+    for (const id of ids) {
+      await deleteProductFromCloud(id);
+    }
+  }, [products]);
 
   // Category mutations
   const addCategory = useCallback((category: Category) => {
@@ -337,10 +342,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setOrders((current) => current.filter((order) => order.status !== "Cancelled"));
   }, []);
 
-  const resetProducts = useCallback(() => {
+  // Explicit manual reset button
+  const resetProducts = useCallback(async () => {
     setProducts(seedProducts);
     for (const sp of seedProducts) {
-      upsertProductToCloud(sp).catch(() => {});
+      await upsertProductToCloud(sp);
     }
   }, []);
 
@@ -368,6 +374,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addProduct,
       updateProduct,
       deleteProduct,
+      clearAllProducts,
       addCategory,
       updateCategory,
       deleteCategory,
@@ -384,6 +391,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       addProduct,
       deleteProduct,
+      clearAllProducts,
       addCategory,
       updateCategory,
       deleteCategory,
