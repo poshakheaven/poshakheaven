@@ -283,12 +283,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     saveOrderToCloud(order).catch(() => {});
-
-    fetch("/api/send-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(order)
-    }).catch(() => {});
   }, []);
 
   const updateOrderStatus = useCallback(

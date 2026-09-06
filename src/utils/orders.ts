@@ -1,5 +1,5 @@
 import type { CartLine, CustomerInfo, DeliveryZone, Order, PaymentInfo } from "../types";
-import { calculateDeliveryCharge, createOrderId, sanitizeText } from "./format";
+import { calculateDeliveryCharge, createOrderId, formatCurrency, sanitizeText } from "./format";
 
 export function buildOrder(
   lines: CartLine[],
@@ -57,21 +57,94 @@ export function buildOrder(
   };
 }
 
-export async function sendOrder(order: Order) {
-  const response = await fetch("/api/send-order", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(order)
-  });
+export function formatTelegramOrderText(order: Order): string {
+  const items = order.items
+    .map(
+      (item) =>
+        `• ${item.name} (${item.size}, ${item.color}) x ${item.quantity} = BDT ${item.lineTotal}`
+    )
+    .join("\n");
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.message ?? "Could not send order to Telegram.");
+  const transaction =
+    order.payment?.method === "bKash"
+      ? `\n📱 Sender: ${order.payment.senderNumber || "N/A"}\n🔢 TrxID: ${order.payment.transactionId || "N/A"}`
+      : "";
+
+  const lines = [
+    `📦 NEW ORDER !!`,
+    `🆔 Order ID: ${order.id}`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `👤 Customer: ${order.customer.fullName}`,
+    `📞 Phone: ${order.customer.phone}`,
+    `📍 Address: ${order.customer.address}`,
+    order.customer.note ? `📝 Note: ${order.customer.note}` : null,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `💵 Payment: ${order.payment.method}${transaction}`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `🛍️ Items:`,
+    items,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `🏷️ Subtotal: BDT ${order.subtotal}`,
+    order.discount && order.discount > 0 ? `🎁 Discount: -BDT ${order.discount}` : null,
+    `🚚 Delivery (${order.deliveryZone === "outside" ? "Outside Dhaka" : "Inside Dhaka"}): BDT ${order.deliveryCharge}`,
+    `🧾 Total: BDT ${order.total}`,
+    `━━━━━━━━━━━━━━━━━━━━`,
+    `🕒 Order Time: ${order.orderTime}`
+  ];
+
+  return lines.filter(Boolean).join("\n");
+}
+
+export async function sendOrder(order: Order): Promise<{ ok: boolean }> {
+  // 1. First attempt: Serverless API endpoint
+  try {
+    const response = await fetch("/api/send-order", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(order)
+    });
+
+    if (response.ok) {
+      return { ok: true };
+    }
+  } catch (err) {
+    console.warn("Serverless Telegram function failed, attempting direct fallback:", err);
   }
 
-  return response.json() as Promise<{ ok: true }>;
+  // 2. Direct client fallback (if tokens are configured in Vite)
+  const token =
+    import.meta.env.VITE_TELEGRAM_BOT_TOKEN ||
+    (typeof process !== "undefined" ? process.env.TELEGRAM_BOT_TOKEN : "");
+  const chatId =
+    import.meta.env.VITE_TELEGRAM_CHAT_ID ||
+    (typeof process !== "undefined" ? process.env.TELEGRAM_CHAT_ID : "");
+
+  if (token && chatId) {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: formatTelegramOrderText(order)
+          })
+        }
+      );
+      if (response.ok) {
+        return { ok: true };
+      }
+    } catch (directErr) {
+      console.error("Direct Telegram send failed:", directErr);
+    }
+  }
+
+  return { ok: false };
 }
 
 export function validateBangladeshPhone(phone: string) {
